@@ -15,17 +15,17 @@ tasks:
     requires:
       vars: [PROJECT_NAME]
   notarize_macos:
-    desc: Notarize macOS binary with Apple notarytool (requires PROJECT_NAME + Apple/CircleCI env)
+    desc: Submit macOS binary to Apple notarytool, record submission in /tmp/notarization/info.json (requires PROJECT_NAME + Apple env)
     platforms: [darwin]
     cmds:
       - task: gen:notarize_macos.sh
         vars:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
-      vars: [PROJECT_NAME, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID, CIRCLECI_PUBLISH_WEBHOOK_SECRET]
+      vars: [PROJECT_NAME, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID]
   validate_notarization:
-    desc: Validate Apple notarization result from webhook payload via rcodesign (requires WEBHOOK_BODY + Apple env)
+    desc: Validate Apple notarization result from /tmp/notarization/info.json via rcodesign (requires Apple env)
     cmds:
       - task: gen:validate_notarization.sh
     requires:
-      vars: [WEBHOOK_BODY, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID]
+      vars: [APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID]

@@ -2,7 +2,9 @@
 # Notarize a macOS binary with Apple notarytool.
 # Expects tmp/binary/PROJECT_NAME from the build_rust task.
 # Call with PROJECT_NAME set, e.g. `task notarize_macos PROJECT_NAME=myapp`.
-# Requires Apple/CircleCI credentials in the environment (provided by fnox).
+# Requires Apple credentials in the environment (provided by fnox).
+# Records the submission in /tmp/notarization/info.json for the
+# validate_notarization task (the client persists that file between jobs).
 set -euo pipefail
 
 PROJECT_NAME="{{.PROJECT_NAME}}"
@@ -14,14 +16,15 @@ fi
 : "${APPLE_API_KEY_CONTENT:?APPLE_API_KEY_CONTENT is required in the environment}"
 : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID is required in the environment}"
 : "${APPLE_ISSUER_ID:?APPLE_ISSUER_ID is required in the environment}"
-: "${CIRCLECI_PUBLISH_WEBHOOK_SECRET:?CIRCLECI_PUBLISH_WEBHOOK_SECRET is required in the environment}"
 
-mkdir -p tmp/binary
+mkdir -p tmp/binary /tmp/notarization
 zip -j "tmp/binary/$PROJECT_NAME.zip" "tmp/binary/$PROJECT_NAME"
 
 xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
 	--key <(printf '%s\n' "$APPLE_API_KEY_CONTENT") \
 	--key-id "$APPLE_API_KEY_ID" \
 	--issuer "$APPLE_ISSUER_ID" \
-	--webhook "https://internal.circleci.com/private/soc/e/ea4e821d-3ab0-42a0-b760-cecae09c789b?secret=${CIRCLECI_PUBLISH_WEBHOOK_SECRET}" \
-	--output-format json
+	--output-format json | tee /tmp/notarization/info.json
+
+SUBMISSION_ID=$(jq -r '.id' /tmp/notarization/info.json)
+echo "Submitted: $SUBMISSION_ID"

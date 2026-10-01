@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Build a Rust project for the host OS/arch Rust target triple.
+# Call with PROJECT_NAME set, e.g. `task build_rust PROJECT_NAME=myapp`.
+set -euo pipefail
+
+PROJECT_NAME="{{.PROJECT_NAME}}"
+if [[ -z ${PROJECT_NAME} ]]; then
+	echo "PROJECT_NAME is required (call with PROJECT_NAME=<name>)" >&2
+	exit 1
+fi
+
+# Resolve OS and arch
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+case "$OS" in
+darwin) OS="apple" ;;
+linux) OS="linux" ;;
+*)
+	echo "Unsupported OS: $OS"
+	exit 1
+	;;
+esac
+
+ARCH=$(uname -m)
+case "$ARCH" in
+x86_64) ARCH="amd64" ;;
+aarch64 | arm64) ARCH="arm64" ;;
+*)
+	echo "Unsupported arch: $ARCH"
+	exit 1
+	;;
+esac
+
+# Resolve Rust target triple
+case "$OS-$ARCH" in
+linux-amd64) RUST_TARGET="x86_64-unknown-linux-musl" ;;
+linux-arm64) RUST_TARGET="aarch64-unknown-linux-musl" ;;
+apple-amd64) RUST_TARGET="x86_64-apple-darwin" ;;
+apple-arm64) RUST_TARGET="aarch64-apple-darwin" ;;
+*)
+	echo "Unsupported OS/arch combination: $OS-$ARCH"
+	exit 1
+	;;
+esac
+
+NAME="$PROJECT_NAME-$RUST_TARGET"
+TARBALL="release/$NAME.tar.gz"
+
+mkdir -p release
+
+# Install target & precompiled std & build release
+rustup target add "$RUST_TARGET"
+rustup component add rust-std --target "$RUST_TARGET"
+cargo build --release --target "$RUST_TARGET"
+
+tar -czf "$TARBALL" -C "target/$RUST_TARGET/release" "$PROJECT_NAME"
+echo "Created: $TARBALL"
+
+# Copy unpacked binary for downstream tasks (stable path, no re-resolution needed)
+mkdir -p tmp/binary
+cp "target/$RUST_TARGET/release/$PROJECT_NAME" "tmp/binary/$PROJECT_NAME"
+echo "Copied: tmp/binary/$PROJECT_NAME"

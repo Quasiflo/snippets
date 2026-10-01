@@ -6,6 +6,11 @@ includes:
     taskfile: ./taskfile-generated.yml
     internal: true
 tasks:
-  hello:
+  build_rust:
+    desc: Build Rust project and package release tarball (requires PROJECT_NAME)
     cmds:
-      - task: gen:hello_world.sh
+      - task: gen:build_rust.sh
+        vars:
+          PROJECT_NAME: '{{.PROJECT_NAME}}'
+    requires:
+      vars: [PROJECT_NAME]

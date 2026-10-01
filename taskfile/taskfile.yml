@@ -14,3 +14,12 @@ tasks:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
       vars: [PROJECT_NAME]
+  notarize_macos:
+    desc: Notarize macOS binary with Apple notarytool (requires PROJECT_NAME + Apple/CircleCI env)
+    platforms: [darwin]
+    cmds:
+      - task: gen:notarize_macos.sh
+        vars:
+          PROJECT_NAME: '{{.PROJECT_NAME}}'
+    requires:
+      vars: [PROJECT_NAME, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID, CIRCLECI_PUBLISH_WEBHOOK_SECRET]

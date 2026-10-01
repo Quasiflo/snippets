@@ -23,3 +23,9 @@ tasks:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
       vars: [PROJECT_NAME, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID, CIRCLECI_PUBLISH_WEBHOOK_SECRET]
+  validate_notarization:
+    desc: Validate Apple notarization result from webhook payload via rcodesign (requires WEBHOOK_BODY + Apple env)
+    cmds:
+      - task: gen:validate_notarization.sh
+    requires:
+      vars: [WEBHOOK_BODY, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID]

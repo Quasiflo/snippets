@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+---
+version: '3'
+includes:
+  gen:
+    taskfile: ./taskfile-generated.yml
+    internal: true
+tasks:
+  hello:
+    cmds:
+      - task: gen:hello_world.sh

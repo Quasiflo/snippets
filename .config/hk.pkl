@@ -4,4 +4,10 @@ amends "package://github.com/jdx/hk/releases/download/v2.2.0/hk@2.2.0#/Config.pk
 
 import "generated/generated.pkl"
 
-steps = generated.addSteps((generated.steps))
+steps = generated.addSteps((generated.steps) {
+  ["[fix] taskfile generated"] {
+    glob = List("taskfile/scripts/*.sh", "taskfile/*.yml", "scripts/generate_taskfile.sh")
+    check = "scripts/generate_taskfile.sh --check"
+    fix = "scripts/generate_taskfile.sh"
+  }
+})

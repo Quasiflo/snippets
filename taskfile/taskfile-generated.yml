@@ -112,15 +112,19 @@ tasks:
       # rcodesign, fetches the submission log, and fails unless Accepted.
       set -euo pipefail
 
+      : "${APPLE_API_KEY_CONTENT:?APPLE_API_KEY_CONTENT is required in the environment}"
+      : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID is required in the environment}"
+      : "${APPLE_ISSUER_ID:?APPLE_ISSUER_ID is required in the environment}"
+
       INFO_FILE="/tmp/notarization/info.json"
       if [[ ! -f ${INFO_FILE} ]]; then
       	echo "${INFO_FILE} not found (run notarize_macos first and persist it between jobs)" >&2
       	exit 1
       fi
 
-      : "${APPLE_API_KEY_CONTENT:?APPLE_API_KEY_CONTENT is required in the environment}"
-      : "${APPLE_API_KEY_ID:?APPLE_API_KEY_ID is required in the environment}"
-      : "${APPLE_ISSUER_ID:?APPLE_ISSUER_ID is required in the environment}"
+      LOG_FILE=tmp/notarization/notary-log.json
+
+      mkdir -p tmp/notarization
 
       # The submission record is available here
       jq . "${INFO_FILE}"
@@ -149,13 +153,13 @@ tasks:
       			"$APPLE_ISSUER_ID" \
       			"$APPLE_API_KEY_ID" \
       			<(printf '%s\n' "$APPLE_API_KEY_CONTENT")
-      	) "$SUBMISSION_ID" >notary-log.json
+      	) "$SUBMISSION_ID" >"$LOG_FILE"
 
-      STATUS=$(jq -r '.status // .attributes.status' notary-log.json)
+      STATUS=$(jq -r '.status // .attributes.status' $LOG_FILE)
 
       if [ "$STATUS" != "Accepted" ]; then
       	echo "Notarization failed: $STATUS"
-      	cat notary-log.json
+      	cat $LOG_FILE
       	exit 1
       fi
 

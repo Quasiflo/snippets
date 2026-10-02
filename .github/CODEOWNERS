@@ -8,6 +8,6 @@ CHANGELOG.md
 .config/templatry.toml
 .config/version.pkl
 .config/hk.pkl
-.config/mise/*
+.config/mise/**
 .config/mise.toml
 .config/mise.lock

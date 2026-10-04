@@ -10,4 +10,7 @@ steps = generated.addSteps((generated.steps) {
     check = "scripts/generate_taskfile.sh --check"
     fix = "scripts/generate_taskfile.sh"
   }
+  ["[lint] copy-paste"] {
+    exclude = List("taskfile/taskfile.yml")
+  }
 })

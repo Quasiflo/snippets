@@ -34,11 +34,13 @@ fi
 # mvdan/sh Go interpreter, whose <(...) becomes a sh-interp-* FIFO
 # that sandboxed tools cannot reliably open. Regular temp files work
 # everywhere (macOS notarytool path and Linux rcodesign path alike).
+# NOTE: mvdan/sh only supports `trap ... EXIT` (no INT/TERM), so keep
+# EXIT-only for Task compatibility; real bash also accepts it.
 KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
 chmod 600 "$KEY_FILE"
 ENCODED_FILE="$(mktemp /tmp/ApiKey_XXXXXX.json)"
 chmod 600 "$ENCODED_FILE"
-trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT INT TERM
+trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT
 printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
 rcodesign encode-app-store-connect-api-key \
 	-o "$ENCODED_FILE" \
@@ -62,3 +64,4 @@ if [ "$STATUS" != "Accepted" ]; then
 fi
 
 echo "Notarization Accepted"
+rm -f "$KEY_FILE" "$ENCODED_FILE"

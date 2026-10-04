@@ -24,9 +24,11 @@ zip -j "tmp/binary/$PROJECT_NAME.zip" "tmp/binary/$PROJECT_NAME"
 # Go interpreter, whose <(...) process substitution becomes a
 # sh-interp-* FIFO that sandboxed Apple binaries (notarytool) cannot
 # open. A real temp file works everywhere.
+# NOTE: mvdan/sh only supports `trap ... EXIT` (no INT/TERM), so keep
+# EXIT-only for Task compatibility; real bash also accepts it.
 KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
 chmod 600 "$KEY_FILE"
-trap 'rm -f "$KEY_FILE"' EXIT INT TERM
+trap 'rm -f "$KEY_FILE"' EXIT
 printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
 
 xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
@@ -37,3 +39,4 @@ xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
 
 SUBMISSION_ID=$(jq -r '.id' /tmp/notarization/info.json)
 echo "Submitted: $SUBMISSION_ID"
+rm -f "$KEY_FILE"

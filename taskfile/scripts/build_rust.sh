@@ -47,6 +47,29 @@ TARBALL="release/$NAME.tar.gz"
 
 mkdir -p release
 
+# Ensure the musl C toolchain is present for musl targets.
+# cc-rs (e.g. aws-lc-sys) probes for <target>-gcc and fails with
+# ToolNotFound when musl-tools/musl-dev are missing on Debian images
+# (cimg/base, ubuntu-2204). musl-dev ships the wrapper, so once the
+# packages are installed the compiler is picked up automatically.
+case "$RUST_TARGET" in
+*-unknown-linux-musl)
+	MUSL_CC=""
+	case "$RUST_TARGET" in
+	x86_64-*) MUSL_CC="x86_64-linux-musl-gcc" ;;
+	aarch64-*) MUSL_CC="aarch64-linux-musl-gcc" ;;
+	esac
+	if ! command -v "$MUSL_CC" >/dev/null 2>&1 && ! command -v musl-gcc >/dev/null 2>&1; then
+		if command -v apt-get >/dev/null 2>&1; then
+			if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+			$SUDO apt-get update && $SUDO apt-get install -y musl-tools musl-dev
+		else
+			echo "warning: $MUSL_CC not found and apt-get unavailable (musl build may fail)" >&2
+		fi
+	fi
+	;;
+esac
+
 # Install target & precompiled std & build release
 rustup target add "$RUST_TARGET"
 rustup component add rust-std --target "$RUST_TARGET"

@@ -30,24 +30,28 @@ if [[ -z ${SUBMISSION_ID} || ${SUBMISSION_ID} == "null" ]]; then
 	exit 1
 fi
 
+# Materialize credentials as regular files: Task runs cmds via the
+# mvdan/sh Go interpreter, whose <(...) becomes a sh-interp-* FIFO
+# that sandboxed tools cannot reliably open. Regular temp files work
+# everywhere (macOS notarytool path and Linux rcodesign path alike).
+KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
+chmod 600 "$KEY_FILE"
+ENCODED_FILE="$(mktemp /tmp/ApiKey_XXXXXX.json)"
+chmod 600 "$ENCODED_FILE"
+trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT INT TERM
+printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+rcodesign encode-app-store-connect-api-key \
+	-o "$ENCODED_FILE" \
+	"$APPLE_ISSUER_ID" \
+	"$APPLE_API_KEY_ID" \
+	"$KEY_FILE"
+
 # Block until Apple reaches a terminal state, then fetch the log for parsing
 rcodesign notary-wait \
-	--api-key-file <(
-		rcodesign encode-app-store-connect-api-key \
-			-o /dev/stdout \
-			"$APPLE_ISSUER_ID" \
-			"$APPLE_API_KEY_ID" \
-			<(printf '%s\n' "$APPLE_API_KEY_CONTENT")
-	) "$SUBMISSION_ID"
+	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID"
 
 rcodesign notary-log \
-	--api-key-file <(
-		rcodesign encode-app-store-connect-api-key \
-			-o /dev/stdout \
-			"$APPLE_ISSUER_ID" \
-			"$APPLE_API_KEY_ID" \
-			<(printf '%s\n' "$APPLE_API_KEY_CONTENT")
-	) "$SUBMISSION_ID" >"$LOG_FILE"
+	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE"
 
 STATUS=$(jq -r '.status // .attributes.status' $LOG_FILE)
 

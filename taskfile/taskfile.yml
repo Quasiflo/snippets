@@ -80,6 +80,29 @@ tasks:
 
       mkdir -p release
 
+      # Ensure the musl C toolchain is present for musl targets.
+      # cc-rs (e.g. aws-lc-sys) probes for <target>-gcc and fails with
+      # ToolNotFound when musl-tools/musl-dev are missing on Debian images
+      # (cimg/base, ubuntu-2204). musl-dev ships the wrapper, so once the
+      # packages are installed the compiler is picked up automatically.
+      case "$RUST_TARGET" in
+      *-unknown-linux-musl)
+      	MUSL_CC=""
+      	case "$RUST_TARGET" in
+      	x86_64-*) MUSL_CC="x86_64-linux-musl-gcc" ;;
+      	aarch64-*) MUSL_CC="aarch64-linux-musl-gcc" ;;
+      	esac
+      	if ! command -v "$MUSL_CC" >/dev/null 2>&1 && ! command -v musl-gcc >/dev/null 2>&1; then
+      		if command -v apt-get >/dev/null 2>&1; then
+      			if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; else SUDO=""; fi
+      			$SUDO apt-get update && $SUDO apt-get install -y musl-tools musl-dev
+      		else
+      			echo "warning: $MUSL_CC not found and apt-get unavailable (musl build may fail)" >&2
+      		fi
+      	fi
+      	;;
+      esac
+
       # Install target & precompiled std & build release
       rustup target add "$RUST_TARGET"
       rustup component add rust-std --target "$RUST_TARGET"
@@ -117,8 +140,17 @@ tasks:
       mkdir -p tmp/binary /tmp/notarization
       zip -j "tmp/binary/$PROJECT_NAME.zip" "tmp/binary/$PROJECT_NAME"
 
+      # Write the API key to a regular file: Task runs cmds via the mvdan/sh
+      # Go interpreter, whose <(...) process substitution becomes a
+      # sh-interp-* FIFO that sandboxed Apple binaries (notarytool) cannot
+      # open. A real temp file works everywhere.
+      KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
+      chmod 600 "$KEY_FILE"
+      trap 'rm -f "$KEY_FILE"' EXIT INT TERM
+      printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+
       xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
-      	--key <(printf '%s\n' "$APPLE_API_KEY_CONTENT") \
+      	--key "$KEY_FILE" \
       	--key-id "$APPLE_API_KEY_ID" \
       	--issuer "$APPLE_ISSUER_ID" \
       	--output-format json | tee /tmp/notarization/info.json
@@ -160,24 +192,28 @@ tasks:
       	exit 1
       fi
 
+      # Materialize credentials as regular files: Task runs cmds via the
+      # mvdan/sh Go interpreter, whose <(...) becomes a sh-interp-* FIFO
+      # that sandboxed tools cannot reliably open. Regular temp files work
+      # everywhere (macOS notarytool path and Linux rcodesign path alike).
+      KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
+      chmod 600 "$KEY_FILE"
+      ENCODED_FILE="$(mktemp /tmp/ApiKey_XXXXXX.json)"
+      chmod 600 "$ENCODED_FILE"
+      trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT INT TERM
+      printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+      rcodesign encode-app-store-connect-api-key \
+      	-o "$ENCODED_FILE" \
+      	"$APPLE_ISSUER_ID" \
+      	"$APPLE_API_KEY_ID" \
+      	"$KEY_FILE"
+
       # Block until Apple reaches a terminal state, then fetch the log for parsing
       rcodesign notary-wait \
-      	--api-key-file <(
-      		rcodesign encode-app-store-connect-api-key \
-      			-o /dev/stdout \
-      			"$APPLE_ISSUER_ID" \
-      			"$APPLE_API_KEY_ID" \
-      			<(printf '%s\n' "$APPLE_API_KEY_CONTENT")
-      	) "$SUBMISSION_ID"
+      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID"
 
       rcodesign notary-log \
-      	--api-key-file <(
-      		rcodesign encode-app-store-connect-api-key \
-      			-o /dev/stdout \
-      			"$APPLE_ISSUER_ID" \
-      			"$APPLE_API_KEY_ID" \
-      			<(printf '%s\n' "$APPLE_API_KEY_CONTENT")
-      	) "$SUBMISSION_ID" >"$LOG_FILE"
+      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE"
 
       STATUS=$(jq -r '.status // .attributes.status' $LOG_FILE)
 

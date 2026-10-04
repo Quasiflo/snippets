@@ -20,8 +20,17 @@ fi
 mkdir -p tmp/binary /tmp/notarization
 zip -j "tmp/binary/$PROJECT_NAME.zip" "tmp/binary/$PROJECT_NAME"
 
+# Write the API key to a regular file: Task runs cmds via the mvdan/sh
+# Go interpreter, whose <(...) process substitution becomes a
+# sh-interp-* FIFO that sandboxed Apple binaries (notarytool) cannot
+# open. A real temp file works everywhere.
+KEY_FILE="$(mktemp /tmp/AuthKey_XXXXXX.p8)"
+chmod 600 "$KEY_FILE"
+trap 'rm -f "$KEY_FILE"' EXIT INT TERM
+printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+
 xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
-	--key <(printf '%s\n' "$APPLE_API_KEY_CONTENT") \
+	--key "$KEY_FILE" \
 	--key-id "$APPLE_API_KEY_ID" \
 	--issuer "$APPLE_ISSUER_ID" \
 	--output-format json | tee /tmp/notarization/info.json

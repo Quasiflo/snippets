@@ -18,7 +18,9 @@ fi
 : "${APPLE_ISSUER_ID:?APPLE_ISSUER_ID is required in the environment}"
 
 mkdir -p tmp/binary /tmp/notarization
-zip -j "tmp/binary/$PROJECT_NAME.zip" "tmp/binary/$PROJECT_NAME"
+# Use ditto (not zip -j) so the code signature's extended attributes
+# and resource forks survive archiving.
+ditto -c -k "tmp/binary/$PROJECT_NAME" "tmp/binary/$PROJECT_NAME.zip"
 
 # Write the API key to a regular file: Task runs cmds via the mvdan/sh
 # Go interpreter, whose <(...) process substitution becomes a

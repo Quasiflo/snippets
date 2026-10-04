@@ -22,6 +22,15 @@ tasks:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
       vars: [PROJECT_NAME, APPLE_API_KEY_CONTENT, APPLE_API_KEY_ID, APPLE_ISSUER_ID]
+  sign_macos:
+    desc: Sign macOS binary with Developer ID certificate and repackage signed tarball (requires PROJECT_NAME + Apple signing env)
+    platforms: [darwin]
+    cmds:
+      - task: gen:sign_macos.sh
+        vars:
+          PROJECT_NAME: '{{.PROJECT_NAME}}'
+    requires:
+      vars: [PROJECT_NAME, APPLE_CERTIFICATE, APPLE_CERT_PASSWORD, APPLE_SIGN_IDENTITY]
   validate_notarization:
     desc: Validate Apple notarization result from /tmp/notarization/info.json via rcodesign (requires Apple env)
     cmds:

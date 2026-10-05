@@ -98,6 +98,16 @@ openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -clcerts
 openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -nocerts -nodes 2>/dev/null | grep -c 'PRIVATE KEY' || true
 echo "DIAG: end diagnostics"
 
+# TEMP CI DIAGNOSTICS (remove after debug): pinpoint the chain failure.
+# verify-cert prints the exact reason (NOT_TRUSTED/expired/revoked/anchor).
+openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -clcerts -nokeys 2>/dev/null | openssl x509 -out "$INTERMED_DIR/leaf.cer" 2>/dev/null || echo "DIAG: leaf extract failed"
+date -u
+echo "DIAG: verify-cert (codeSigning policy):"
+security verify-cert -p codeSigning -c "$INTERMED_DIR/leaf.cer" || true
+echo "DIAG: user trust settings:"
+security dump-trust-settings -d user || true
+echo "DIAG: end chain diagnostics"
+
 # Fail fast unless a valid Developer ID identity is present. `grep`
 # without -q reads all input (avoids grep -q + pipefail SIGPIPE).
 security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" >/dev/null ||

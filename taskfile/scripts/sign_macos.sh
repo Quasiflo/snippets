@@ -78,6 +78,11 @@ security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 # 0 valid identities even with the correct leaf+key (public cert, Apple PKI).
 curl -fsSL -o "$INTERMED_DIR/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
 security add-certificates -k "$KEYCHAIN" "$INTERMED_DIR/DeveloperIDG2CA.cer"
+# Confer explicit trust (mirrors the manual System-keychain trustRoot install
+# that fixed this locally): bare add-certificates alone does not make the
+# fresh keychain's chain evaluate on some images. No sudo needed (user domain).
+# TEMP: keep until green, then decide permanent vs revert based on result.
+security add-trusted-cert -r trustRoot -k "$KEYCHAIN" "$INTERMED_DIR/DeveloperIDG2CA.cer" || echo "DIAG: add-trusted-cert failed ($?)"
 
 security import "$CERT_FILE" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1
@@ -102,10 +107,10 @@ echo "DIAG: end diagnostics"
 # verify-cert prints the exact reason (NOT_TRUSTED/expired/revoked/anchor).
 openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -clcerts -nokeys 2>/dev/null | openssl x509 -out "$INTERMED_DIR/leaf.cer" 2>/dev/null || echo "DIAG: leaf extract failed"
 date -u
-echo "DIAG: verify-cert (codeSigning policy):"
-security verify-cert -p codeSigning -c "$INTERMED_DIR/leaf.cer" || true
-echo "DIAG: user trust settings:"
-security dump-trust-settings -d user || true
+echo "DIAG: verify-cert (codeSign policy; 'codeSigning' is invalid):"
+security verify-cert -p codeSign -c "$INTERMED_DIR/leaf.cer" || true
+echo "DIAG: user trust settings (bare = user domain; -d takes no arg):"
+security dump-trust-settings || true
 echo "DIAG: end chain diagnostics"
 
 # Fail fast unless a valid Developer ID identity is present. `grep`

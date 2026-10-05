@@ -30,7 +30,7 @@ tasks:
         vars:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
-      vars: [PROJECT_NAME, APPLE_CERTIFICATE, APPLE_CERT_PASSWORD, APPLE_SIGN_IDENTITY]
+      vars: [PROJECT_NAME, APPLE_CERTIFICATE, APPLE_CERT_PASSWORD]
   validate_notarization:
     desc: Validate Apple notarization result from /tmp/notarization/info.json via rcodesign (requires Apple env)
     cmds:
@@ -192,7 +192,6 @@ tasks:
 
       : "${APPLE_CERTIFICATE:?APPLE_CERTIFICATE is required in the environment (base64-encoded .p12)}"
       : "${APPLE_CERT_PASSWORD:?APPLE_CERT_PASSWORD is required in the environment}"
-      : "${APPLE_SIGN_IDENTITY:?APPLE_SIGN_IDENTITY is required in the environment (e.g. 'Developer ID Application: Name (TEAMID)')}"
 
       # Ephemeral keychain password: the keychain lives only for this job run,
       # so invent a random password per run instead of storing one in Infisical.
@@ -241,26 +240,57 @@ tasks:
       # (no INT/TERM), so keep EXIT-only for Task compatibility.
       CERT_FILE="$(mktemp /tmp/AppleCert_XXXXXX.p12)"
       chmod 600 "$CERT_FILE"
-      KEYCHAIN="build-sign.keychain"
-      trap 'rm -f "$CERT_FILE"; security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true' EXIT
+      INTERMED_DIR="$(mktemp -d)"
+      KEYCHAIN="$HOME/Library/Keychains/build-sign.keychain-db"
+      trap 'rm -rf "$INTERMED_DIR"; rm -f "$CERT_FILE"; security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true' EXIT
       printf '%s' "$APPLE_CERTIFICATE" | base64 --decode -o "$CERT_FILE"
 
-      KEYCHAIN="build-sign.keychain"
       security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
       security set-keychain-settings -lut 21600 "$KEYCHAIN"
       security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-      security import "$CERT_FILE" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
-      security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
-      # Prepend our keychain so codesign finds the imported identity without
-      # disturbing the login keychain search order for anything else.
-      security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '",[]')"
 
-      codesign --sign "$APPLE_SIGN_IDENTITY" \
+      # Install Apple's Developer ID intermediate so the fresh keychain can build
+      # a trusted chain. Without it `find-identity -p codesigning` reports
+      # 0 valid identities even with the correct leaf+key (public cert, Apple PKI).
+      curl -fsSL -o "$INTERMED_DIR/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+      security add-certificates -k "$KEYCHAIN" "$INTERMED_DIR/DeveloperIDG2CA.cer"
+
+      security import "$CERT_FILE" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
+      security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1
+
+      # Fail fast unless a valid Developer ID identity is present. `grep`
+      # without -q reads all input (avoids grep -q + pipefail SIGPIPE).
+      security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" >/dev/null ||
+      	{
+      		echo "error: no valid Developer ID identity (check certificate + G2 intermediate)" >&2
+      		exit 1
+      	}
+
+      # Derive the signing SHA-1 at runtime from the just-imported keychain.
+      IDENT_SHA="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep "Developer ID Application" | head -1 | awk '{print $2}')"
+      if [[ -z ${IDENT_SHA} ]]; then
+      	echo "error: could not resolve Developer ID identity SHA-1" >&2
+      	exit 1
+      fi
+
+      # Sign by SHA-1, derived at runtime from the just-imported keychain.
+      codesign --keychain "$KEYCHAIN" --sign "$IDENT_SHA" \
       	--timestamp --options runtime \
-      	--force --verify --verbose \
+      	--force --verbose \
       	"$BINARY"
 
       codesign --verify --deep --strict --verbose=2 "$BINARY"
+
+      # `verify` passes for adhoc too, so gate on Authority instead.
+      CODESIGN_INFO="$(codesign -dvv "$BINARY" 2>&1)"
+      printf '%s\n' "$CODESIGN_INFO"
+      case "$CODESIGN_INFO" in
+      *"Authority=Developer ID Application"*) ;;
+      *)
+      	echo "error: signing did not produce a Developer ID signature (still adhoc?)" >&2
+      	exit 1
+      	;;
+      esac
 
       # Overwrite the release tarball with the signed binary so the uploaded
       # release asset is signed. Contents (single top-level binary) match the
@@ -269,6 +299,7 @@ tasks:
       tar -czf "$TARBALL" -C "tmp/binary" "$PROJECT_NAME"
       echo "Repackaged signed: $TARBALL"
 
+      rm -rf "$INTERMED_DIR"
       rm -f "$CERT_FILE"
       security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
   gen:validate_notarization.sh:

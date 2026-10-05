@@ -30,7 +30,7 @@ tasks:
         vars:
           PROJECT_NAME: '{{.PROJECT_NAME}}'
     requires:
-      vars: [PROJECT_NAME, APPLE_CERTIFICATE, APPLE_CERT_PASSWORD, APPLE_SIGN_IDENTITY]
+      vars: [PROJECT_NAME, APPLE_CERTIFICATE, APPLE_CERT_PASSWORD]
   validate_notarization:
     desc: Validate Apple notarization result from /tmp/notarization/info.json via rcodesign (requires Apple env)
     cmds:

@@ -80,9 +80,11 @@ security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 # intermediates it holds (evaluation walks the search list, not just the file
 # handed to --keychain/find-identity). Unquoted expansion is intentional
 # (word-splitting); the old quoted form collapsed the list into one bogus path.
-# shellcheck disable=SC2086
+# Unquoted $ORIG_KEYCHAINS expansion is intentional (word-splitting back into
+# separate paths); the old quoted form collapsed the list into one bogus path.
 ORIG_KEYCHAINS="$(security list-keychains -d user | tr -d '",[]')"
-security list-keychains -d user -s "$KEYCHAIN" "$ORIG_KEYCHAINS"
+# shellcheck disable=SC2086
+security list-keychains -d user -s "$KEYCHAIN" $ORIG_KEYCHAINS
 
 # Install Apple's Developer ID intermediate so the fresh keychain can build
 # a trusted chain. Without it `find-identity -p codesigning` reports
@@ -92,32 +94,6 @@ security add-certificates -k "$KEYCHAIN" "$INTERMED_DIR/DeveloperIDG2CA.cer"
 
 security import "$CERT_FILE" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null 2>&1
-
-# TEMP CI DIAGNOSTICS (remove after debug). Prints only non-secret data:
-# SHA fingerprints and cert subjects are public; passwords are never printed.
-echo "DIAG: keychain info:"
-security show-keychain-info "$KEYCHAIN" || true
-echo "DIAG: all identities in scoped keychain:"
-security find-identity -v -p codesigning "$KEYCHAIN" || true
-echo "DIAG: keychain cert/key record counts:"
-security dump-keychain "$KEYCHAIN" 2>/dev/null | grep -c "class: 0x80001000" || true
-security dump-keychain "$KEYCHAIN" 2>/dev/null | grep -c "class: 0x00000010" || true
-echo "DIAG: G2 intermediate present:"
-security find-certificate -c "Developer ID Certification Authority" "$KEYCHAIN" | head -5 || true
-echo "DIAG: leaf subject + keybag (from uploaded blob):"
-openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -clcerts -nokeys 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || echo "DIAG: leaf subject unreadable"
-openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -nocerts -nodes 2>/dev/null | grep -c 'PRIVATE KEY' || true
-echo "DIAG: end diagnostics"
-
-# TEMP CI DIAGNOSTICS (remove after debug): pinpoint the chain failure.
-# verify-cert prints the exact reason (NOT_TRUSTED/expired/revoked/anchor).
-openssl pkcs12 -legacy -in "$CERT_FILE" -passin env:APPLE_CERT_PASSWORD -clcerts -nokeys 2>/dev/null | openssl x509 -out "$INTERMED_DIR/leaf.cer" 2>/dev/null || echo "DIAG: leaf extract failed"
-date -u
-echo "DIAG: verify-cert (codeSign policy; 'codeSigning' is invalid):"
-security verify-cert -p codeSign -c "$INTERMED_DIR/leaf.cer" || true
-echo "DIAG: user trust settings (bare = user domain; -d takes no arg):"
-security dump-trust-settings || true
-echo "DIAG: end chain diagnostics"
 
 # Fail fast unless a valid Developer ID identity is present. `grep`
 # without -q reads all input (avoids grep -q + pipefail SIGPIPE).
@@ -133,11 +109,6 @@ if [[ -z ${IDENT_SHA} ]]; then
 	echo "error: could not resolve Developer ID identity SHA-1" >&2
 	exit 1
 fi
-
-# TEMP CI DIAGNOSTICS (remove after debug): trial sign that changes nothing.
-echo "DIAG: dryrun with SHA [$IDENT_SHA]:"
-codesign --keychain "$KEYCHAIN" --sign "$IDENT_SHA" --dryrun --force --verbose "$BINARY" || echo "DIAG: dryrun failed ($?)"
-echo "DIAG: end dryrun"
 
 # Sign by SHA-1, derived at runtime from the just-imported keychain.
 codesign --keychain "$KEYCHAIN" --sign "$IDENT_SHA" \

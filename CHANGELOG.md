@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/Quasiflo/snippets/compare/v0.1.0...v0.1.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* avoid excessive logging ([d8f751c](https://github.com/Quasiflo/snippets/commit/d8f751c885dc49236ef37a6bc652ca9ee62936e9))
+
 ## 0.1.0 (2026-10-05)
 
 

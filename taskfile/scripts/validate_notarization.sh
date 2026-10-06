@@ -20,8 +20,8 @@ LOG_FILE=tmp/notarization/notary-log.json
 
 mkdir -p tmp/notarization
 
-# The submission record is available here
-jq . "${INFO_FILE}"
+# The submission record is available here (redacted: omits CI workspace path)
+jq '{id, message}' "${INFO_FILE}"
 
 # Extract submission ID (notarytool submit --output-format json structure)
 SUBMISSION_ID=$(jq -r '.id // .submission_id' "${INFO_FILE}")
@@ -42,18 +42,33 @@ ENCODED_FILE="$(mktemp /tmp/ApiKey_XXXXXX.json)"
 chmod 600 "$ENCODED_FILE"
 trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT
 printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+# rcodesign logs to stderr with no --quiet flag, so silence the chatter
+# (temp key path, poll state, full notarization log dump) on the happy path.
+# Tool-level failures still fail loudly via the explicit error branches.
 rcodesign encode-app-store-connect-api-key \
 	-o "$ENCODED_FILE" \
 	"$APPLE_ISSUER_ID" \
 	"$APPLE_API_KEY_ID" \
-	"$KEY_FILE"
+	"$KEY_FILE" >/dev/null 2>&1 || {
+	echo "error: failed to encode App Store Connect API key" >&2
+	exit 1
+}
 
-# Block until Apple reaches a terminal state, then fetch the log for parsing
+# Block until Apple reaches a terminal state, then fetch the log for parsing.
+# notary-wait exits 0 for any terminal state (Accepted or Invalid), so the
+# STATUS check below still handles rejections with the full log attached.
+echo "Waiting for notarization $SUBMISSION_ID..."
 rcodesign notary-wait \
-	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID"
+	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >/dev/null 2>&1 || {
+	echo "error: failed waiting for notarization $SUBMISSION_ID" >&2
+	exit 1
+}
 
 rcodesign notary-log \
-	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE"
+	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE" 2>/dev/null || {
+	echo "error: failed fetching notarization log for $SUBMISSION_ID" >&2
+	exit 1
+}
 
 STATUS=$(jq -r '.status // .attributes.status' $LOG_FILE)
 

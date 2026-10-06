@@ -162,11 +162,13 @@ tasks:
       trap 'rm -f "$KEY_FILE"' EXIT
       printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
 
+      # Redirect (not tee): the JSON contains the CI workspace path, and the
+      # submission ID is echoed below on its own line.
       xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
       	--key "$KEY_FILE" \
       	--key-id "$APPLE_API_KEY_ID" \
       	--issuer "$APPLE_ISSUER_ID" \
-      	--output-format json | tee /tmp/notarization/info.json
+      	--output-format json >/tmp/notarization/info.json
 
       SUBMISSION_ID=$(jq -r '.id' /tmp/notarization/info.json)
       echo "Submitted: $SUBMISSION_ID"
@@ -287,23 +289,21 @@ tasks:
       fi
 
       # Sign by SHA-1, derived at runtime from the just-imported keychain.
+      # (No --verbose: it prints the signed-binary details on every run.)
       codesign --keychain "$KEYCHAIN" --sign "$IDENT_SHA" \
       	--timestamp --options runtime \
-      	--force --verbose \
+      	--force \
       	"$BINARY"
 
-      codesign --verify --deep --strict --verbose=2 "$BINARY"
+      codesign --verify --deep --strict "$BINARY"
 
       # `verify` passes for adhoc too, so gate on Authority instead.
-      CODESIGN_INFO="$(codesign -dvv "$BINARY" 2>&1)"
-      printf '%s\n' "$CODESIGN_INFO"
-      case "$CODESIGN_INFO" in
-      *"Authority=Developer ID Application"*) ;;
-      *)
+      # Don't print the full codesign info: it contains the signer name + Team ID.
+      # `grep` without -q reads all input (avoids grep -q + pipefail SIGPIPE).
+      if ! codesign -dvv "$BINARY" 2>&1 | grep "Authority=Developer ID Application" >/dev/null; then
       	echo "error: signing did not produce a Developer ID signature (still adhoc?)" >&2
       	exit 1
-      	;;
-      esac
+      fi
 
       # Overwrite the release tarball with the signed binary so the uploaded
       # release asset is signed. Contents (single top-level binary) match the
@@ -343,8 +343,8 @@ tasks:
 
       mkdir -p tmp/notarization
 
-      # The submission record is available here
-      jq . "${INFO_FILE}"
+      # The submission record is available here (redacted: omits CI workspace path)
+      jq '{id, message}' "${INFO_FILE}"
 
       # Extract submission ID (notarytool submit --output-format json structure)
       SUBMISSION_ID=$(jq -r '.id // .submission_id' "${INFO_FILE}")
@@ -365,18 +365,33 @@ tasks:
       chmod 600 "$ENCODED_FILE"
       trap 'rm -f "$KEY_FILE" "$ENCODED_FILE"' EXIT
       printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
+      # rcodesign logs to stderr with no --quiet flag, so silence the chatter
+      # (temp key path, poll state, full notarization log dump) on the happy path.
+      # Tool-level failures still fail loudly via the explicit error branches.
       rcodesign encode-app-store-connect-api-key \
       	-o "$ENCODED_FILE" \
       	"$APPLE_ISSUER_ID" \
       	"$APPLE_API_KEY_ID" \
-      	"$KEY_FILE"
+      	"$KEY_FILE" >/dev/null 2>&1 || {
+      	echo "error: failed to encode App Store Connect API key" >&2
+      	exit 1
+      }
 
-      # Block until Apple reaches a terminal state, then fetch the log for parsing
+      # Block until Apple reaches a terminal state, then fetch the log for parsing.
+      # notary-wait exits 0 for any terminal state (Accepted or Invalid), so the
+      # STATUS check below still handles rejections with the full log attached.
+      echo "Waiting for notarization $SUBMISSION_ID..."
       rcodesign notary-wait \
-      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID"
+      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >/dev/null 2>&1 || {
+      	echo "error: failed waiting for notarization $SUBMISSION_ID" >&2
+      	exit 1
+      }
 
       rcodesign notary-log \
-      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE"
+      	--api-key-file "$ENCODED_FILE" "$SUBMISSION_ID" >"$LOG_FILE" 2>/dev/null || {
+      	echo "error: failed fetching notarization log for $SUBMISSION_ID" >&2
+      	exit 1
+      }
 
       STATUS=$(jq -r '.status // .attributes.status' $LOG_FILE)
 

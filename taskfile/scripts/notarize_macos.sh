@@ -33,11 +33,13 @@ chmod 600 "$KEY_FILE"
 trap 'rm -f "$KEY_FILE"' EXIT
 printf '%s' "$APPLE_API_KEY_CONTENT" >"$KEY_FILE"
 
+# Redirect (not tee): the JSON contains the CI workspace path, and the
+# submission ID is echoed below on its own line.
 xcrun notarytool submit "tmp/binary/$PROJECT_NAME.zip" \
 	--key "$KEY_FILE" \
 	--key-id "$APPLE_API_KEY_ID" \
 	--issuer "$APPLE_ISSUER_ID" \
-	--output-format json | tee /tmp/notarization/info.json
+	--output-format json >/tmp/notarization/info.json
 
 SUBMISSION_ID=$(jq -r '.id' /tmp/notarization/info.json)
 echo "Submitted: $SUBMISSION_ID"

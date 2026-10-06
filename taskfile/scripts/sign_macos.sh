@@ -111,23 +111,21 @@ if [[ -z ${IDENT_SHA} ]]; then
 fi
 
 # Sign by SHA-1, derived at runtime from the just-imported keychain.
+# (No --verbose: it prints the signed-binary details on every run.)
 codesign --keychain "$KEYCHAIN" --sign "$IDENT_SHA" \
 	--timestamp --options runtime \
-	--force --verbose \
+	--force \
 	"$BINARY"
 
-codesign --verify --deep --strict --verbose=2 "$BINARY"
+codesign --verify --deep --strict "$BINARY"
 
 # `verify` passes for adhoc too, so gate on Authority instead.
-CODESIGN_INFO="$(codesign -dvv "$BINARY" 2>&1)"
-printf '%s\n' "$CODESIGN_INFO"
-case "$CODESIGN_INFO" in
-*"Authority=Developer ID Application"*) ;;
-*)
+# Don't print the full codesign info: it contains the signer name + Team ID.
+# `grep` without -q reads all input (avoids grep -q + pipefail SIGPIPE).
+if ! codesign -dvv "$BINARY" 2>&1 | grep "Authority=Developer ID Application" >/dev/null; then
 	echo "error: signing did not produce a Developer ID signature (still adhoc?)" >&2
 	exit 1
-	;;
-esac
+fi
 
 # Overwrite the release tarball with the signed binary so the uploaded
 # release asset is signed. Contents (single top-level binary) match the

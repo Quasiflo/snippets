@@ -133,6 +133,7 @@ url_api = "https://api.github.com/repos/google/yamlfmt/releases/assets/336650206
 version = "2.4.0"
 backend = "aqua:jdx/hk"
 specifiers = ["2.4.0"]
+unsupported_platforms = ["macos-x64"]
 
 [tools."aqua:jdx/hk"."platforms.linux-arm64"]
 checksum = "sha256:836235bd8aa06f25e7ff28591b32efb5297abe55366e912095636a49ffe4d363"
